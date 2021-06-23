@@ -22,9 +22,13 @@
 
     <input type="submit" value="Save Task" :class="[label ?'btn1' : 'btn' ,'btn-block']" />
   </form>
+
 </template>
 
 <script >
+import db from '@/fb.js'
+import firebase from 'firebase/app'
+import 'firebase/auth'
 export default{
     name: 'AddTask',
     data (){
@@ -34,10 +38,19 @@ export default{
             reminder : true
         }
     },
+    emits: ["ToggleAdd"],
+    props:{
+      showAdd: Boolean
+    },
     methods: {
+        pushing_to_db(collection, newTask){
+          db.collection(collection).add(newTask).then(() => {
+          
+          })
+        },
         Current_date(){
             const current = new Date();
-            const date = `${current.getDate()}/${current.getMonth()+1}/${current.getFullYear()}`;
+            const date = `${current.getDate()}-${current.getMonth()+1}-${current.getFullYear()}`;
             return date;
         },
         onSubmit(e){
@@ -48,18 +61,28 @@ export default{
             }
             if (this.day == ''){
                 const current = new Date();
-                const date = `${current.getDate()}/${current.getMonth()+1}/${current.getFullYear()}`;
+                const date = `${current.getDate()}-${current.getMonth()+1}-${current.getFullYear()}`;
                 this.day = date;
             }
             const newTask = {
-//                id: Math.floor(Math.random() * 10000),
                 text: this.label,
                 day: this.day,
                 reminder: this.reminder,
             }
-            
+            // submiting the new task on public or user uid
+            firebase.auth().onAuthStateChanged((user) => {
+              if (user){
+                this.pushing_to_db(user.uid, newTask);
+                console.log("Added to personal DB")
+              }
+              else{
+                this.pushing("public", newTask);
+                console.log("Added to public DB")
+              }
+            })
             this.$emit('add-Task', newTask)
-
+            this.$emit('ToggleAdd')
+            
             this.label = '';
             this.day = '';
             this.reminder = true;

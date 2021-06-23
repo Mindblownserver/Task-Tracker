@@ -14,14 +14,15 @@ export default {
   props: {
     task: Object
   },
-  
+  emits: ["delete-Task", "toggle-reminder"]
 };
 </script>
 <style>
 .task {
-  background: #f4f4f4;
+  background: #f1f1f1;
   margin: 5px;
   padding: 10px 20px;
+  border-radius: 15px;
   cursor: pointer;
 }
 

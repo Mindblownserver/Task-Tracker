@@ -1,15 +1,21 @@
 <template>
+  <!--Hello!-->
   <div class="container">
-    <Header @Toggle-Add="toggleTasks" title="Task Tracker" :showAdd='showAdd'/>
-    <div v-if="showAdd">
-      <AddTask @add-Task='addTask' />
-    </div>
-    <Tasks
+    <Header  @Toggle-Add="toggleTasks" title="Task Tracker" :showAdd='showAdd'/>
+    <transition name="switch">
+      <div v-if="showAdd">
+        <AddTask @add-Task='addTask' @Toggle-Add="toggleTasks" :showAdd ='showAdd' />
+      </div>
+    </transition>
+    <Tasks id='TaskList'
       @toggle-reminder="ToggleReminder"
       @delete-Task="DeleteTask"
       :tasks="tasks"
     />
-    <Footer />
+    <!--"I hope you like this app, it was hard to make :D" -Yassine Kharrat-->
+    <transition name="footer">
+      <Footer />
+    </transition>
   </div>
 
 </template>
@@ -17,8 +23,11 @@
 <script>
 import Header from "./components/header";
 import Tasks from "./components/Tasks";
-import AddTask from "./components/AddTask"
-import Footer from "./components/footer"
+import AddTask from "./components/AddTask";
+import Footer from "./components/footer";
+import db from './fb';
+import firebase from 'firebase/app';
+import 'firebase/auth';
 
 export default {
   name: "App",
@@ -31,12 +40,12 @@ export default {
   data() {
     return {
       tasks: [],
-      showAdd: false
+      showAdd: false,
     };
   },
   methods: {
   
-  
+  /* Notification functions
   notifyMe() {
     if (!("Notification" in window)) {
       alert("This browser does not support system notifications");
@@ -64,82 +73,83 @@ export default {
     };
     setTimeout(notification.close.bind(notification), 7000); 
   },
-
+ */
 
     toggleTasks(){
     this.showAdd = !this.showAdd;
     },
-
-
-    async addTask(task){
+    addTask(task){
       Notification.requestPermission();
-      const res = await fetch("api/tasks", {
-        method: "POST",
-        headers: {
-          'Content-type': 'application/json',
-        },
-        body: JSON.stringify(task),
-      });
-      const data = await res.json();
-
-      this.tasks = [...this.tasks,data];
-      this.showAdd = !this.showAdd;
     },
-
+    // This delete function took greater time than other methods for now because 
+    // it consists of checking whether or not the task we want to delete does exist in the list (the available tasks list) !
+    // I tried to use the built-in change.type === 'removed' but it was kinda buggy. So i used to following structure
+    // i removed the *task from the list and the database*, and believe me , it wasn't such an easy task :')
     async DeleteTask(id) {
-      if (
-        confirm(`Are you sure you want to delete "${this.tasks[id - 1].text}"?`)
-      ) {
-        const res = await fetch(`api/tasks/${id}`, {
-          method: 'DELETE',
-        });
-        
-        res.status === 200 ? (this.tasks = this.tasks.filter(task => task.id !== id)) : (alert('Error removing task!'))
-
-      }
+      console.log(id)
+      firebase.auth().onAuthStateChanged((user)=>{
+        if (user){
+          this.delete_listener(user.uid, id);
+          }
+        else{
+          this.delete_listener("public", id);
+        }
+      })
+      
     },
     // This one is the bad boy :(
     async ToggleReminder(id) {
-      const res = await fetch(`api/tasks/${id}`);
-      const taskToToggle = await res.json();
-      const updTask = { ...taskToToggle, reminder: !taskToToggle.reminder }
-      const results = await fetch(`api/tasks/${id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-type': 'application/json',
-        },
-        body: JSON.stringify(updTask),
-      })
-      const data = await results.json();
-      console.log(data)
-      this.tasks = this.tasks.map((task) =>
-        task.id === id ? { ...task, reminder: data.reminder } : task
-      )
-      /*
-      const updTask = { ...taskToToggle, reminder: taskToToggle.reminder }
-      const results = await fetch(`api/tasks/${id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-type': 'application/json',
-        },
-        body: JSON.stringify(updTask),
-      })
-      console.log(typeof taskToToggle);
-      const data = await res.json()
-      this.tasks = this.tasks.map((task) =>
-        task.id === id ? { ...task, reminder: !data.reminder } : task
-      )
-      */
+      
+      const rem = db.collection("tasks").doc(id).get()
+      console.log(rem)
     },
-    // it ends here *such a relief*
-    async fetchInfo(){
-      const res = await fetch("api/tasks");
-      const results = await res.json();
-      return results;
+    // for code visibility and clearence :D
+    async refresh_listener(collection){
+      db.collection(collection).onSnapshot(res => {
+      const changes = res.docChanges();
+      changes.forEach(change => {
+        if(change.type === 'added'){
+          this.tasks.push({
+            ...change.doc.data(),
+            id: change.doc.id
+            })
+          }
+        })
+      })
+    },
+    async delete_listener(collection,id){
+    let task = db.collection(collection).doc(id)
+        if (
+        confirm(`Are you sure you want to delete ?`)
+        ) {
+        task.get().then((res) =>{
+          this.tasks.forEach(elements =>{
+            const target = Object.assign({}, elements);
+            if (target.id === id){
+              let index = this.tasks.indexOf(elements)
+              if (index > -1){
+                this.tasks.splice(index, 1)
+              }
+              task.delete();
+            }
+          })
+        })
+      }
     }
+    // it ends here *such a relief*
   },
+  // loads the data from firestore
   async created() {
-    this.tasks = await this.fetchInfo();
+    firebase.auth().signInAnonymously();
+    firebase.auth().onAuthStateChanged((user)=>{
+      if (user){
+        this.refresh_listener(user.uid);
+      }
+      else{
+        this.refresh_listener("public");
+      }
+    })
+    
   },
   
 };
@@ -148,51 +158,63 @@ export default {
 <style>
 @import url("https://fonts.googleapis.com/css2?family=Itim&display=swap");
 
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
 
-html,
-body {
-  font-family: Itim;
-}
+  html,
+  body {
+    font-family: Itim;
+  }
 
-.container {
-  max-width: 500px;
-  margin: 30px auto;
-  overflow: auto;
-  min-height: 300px;
-  border: 1px solid steelblue;
-  padding: 30px;
-  border-radius: 5px;
-}
+  .container {
+    max-width: 500px;
+    margin: 30px auto;
+    overflow: auto;
+    min-height: 300px;
+    border: 1px solid steelblue;
+    padding: 30px;
+    border-radius: 5px;
+  }
 
-.btn {
-  display: inline-block;
-  background: black;
-  color: aliceblue;
-  border: none;
-  padding: 10px 20px;
-  margin: 5px;
-  border-radius: 5px;
-  cursor: pointer;
-  text-decoration: none;
-  font-size: 15px;
-  font-family: inherit;
-}
+  .btn {
+    display: inline-block;
+    background: black;
+    color: aliceblue;
+    border: none;
+    padding: 10px 20px;
+    margin: 5px;
+    border-radius: 5px;
+    cursor: pointer;
+    text-decoration: none;
+    font-size: 15px;
+    font-family: inherit;
+  }
 
-.btn:focus {
-  outline: none;
-}
+  .btn:focus {
+    outline: none;
+  }
 
-.btn:active {
-  transform: scale(0.98);
-}
+  .btn:active {
+    transform: scale(0.98);
+  }
 
-.btn-block {
-  display: block;
-  width: 100%;
+  .btn-block {
+    display: block;
+    width: 100%;
+  }
+
+.switch-enter-from, .switch-leave-to{
+  opacity: 0;
+  transform: translateY(-20px);
+}
+.switch-enter-to, .switch-leave-from{
+  opacity: 1;
+  transform: translateY(0);
+}
+.switch-enter-active, .switch-leave-active{
+  transition: all 0.5s ease;
 }
 </style>
